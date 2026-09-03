@@ -10,7 +10,7 @@ The upstream scanner is a Go binary that performs one-shot metadata scans (`base
 
 The plugin follows a **zero-trust architecture**: the scanner is never trusted to self-assert scope, credentials are least-privilege and audience-bound, every signal is verified server-side before processing, and all failures fail closed. TLS termination is handled at the edge (Cloudflare tunnel), with the plugin enforcing HTTPS-only ingestion behind the proxy via explicit trusted-proxy scheme handling.
 
-This is one instance of Allura's broader framework patterns — see [Framework Mapping](./framework-mapping.md) for how bumblebee's design maps to the platform's reusable agent orchestration, memory, harness, and governance capabilities.
+This is one instance of Allura's broader framework patterns — see [Framework Mapping](docs/framework-mapping.md) for how bumblebee's design maps to the platform's reusable agent orchestration, memory, harness, and governance capabilities.
 
 ## Why It Exists
 
@@ -23,58 +23,77 @@ Supply-chain security requires knowing what packages are installed across develo
 5. **Memory and state** — durable evidence ledger with append-only records, immutable receipts, and staleness semantics, built on Allura's `memory/` and `db/` tenant-scoped transaction patterns.
 6. **Framework composability** — the module manifest (`module.ts`) registers with the Curator module registry (`curator/module-registry.ts`), using the same composability contract that `adapter-registry/` and `harness-adapter/` provide for other agent integrations.
 
-## How It Works (End-to-End Flow)
+---
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Upstream Bumblebee scanner binary (Go, pinned v0.1.2)          │
-│  Runs on a developer endpoint, scans local package metadata     │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  1. Runner authenticates with bumblebee_runner credential       │
-│     POST /api/plugins/bumblebee/runs                             │
-│     → Server issues a scan lease + short-lived bumblebee_ingest │
-│       token bound to source revision + population contract      │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  2. Scanner runs and posts NDJSON results                       │
-│     POST /api/plugins/bumblebee/ingest  (HTTPS-only)            │
-│     → Auth before body parse → content-type/encoding gates →    │
-│       bounded read → replay/conflict detection → conformance    │
-│       validation → atomic persist (receipt + records + held     │
-│       decision)                                                  │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  3. Promotion engine evaluates the batch                        │
-│     → Complete + matching summary + matching roots +            │
-│       bound ecosystems + consistent counts = PROMOTED           │
-│     → Anything else = HELD (evidence only, current state        │
-│       preserved)                                                 │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  4. Exposure recomputation (finding-authority)                  │
-│     → Findings matched against accepted package inventory       │
-│     → Catalog digest bound at lease issuance                    │
-│     → is_trusted = matched package + catalog match              │
-│     → Evidence junctions link back to source/lease/batch/run    │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  5. Downstream Allura services                                  │
-│     → Exposure alerts → simulated proposals → approvals →       │
-│       actions → immutable receipts                              │
-│     → Optional Curator dashboard display (read-only)            │
-└─────────────────────────────────────────────────────────────────┘
-```
+## How It Works
+
+### 1. From scan to trusted exposure
+
+<p align="center">
+  <a href="docs/images/allura-bumblebee-scan-to-trusted-exposure-v1.png"><img src="docs/images/allura-bumblebee-scan-to-trusted-exposure-v1.png" alt="From scan to trusted exposure: a developer endpoint is scanned by the pinned Bumblebee scanner, results pass lease issuance, secure ingest, validation, and promotion or hold, and exposure recomputation feeds a governed response back to the developer endpoint." width="900" /></a>
+</p>
+
+**Developer endpoint** → **Bumblebee scanner** → **lease issuance** → **secure ingest** → **validation** → **promotion or hold** → **exposure recomputation** → **governed response**. The scanner discovers; Allura decides what can be trusted.
+
+| Stage | Code | What happens |
+|---|---|---|
+| Lease issuance | `lease-authority.ts` | Runner authenticates with `bumblebee_runner`; server mints a short-lived `bumblebee_ingest` token bound to source revision and population contract |
+| Secure ingest | `ingest-pipeline.ts` | HTTPS-only, auth before body parse, content-type and encoding gates, bounded read, replay and conflict detection |
+| Validation | `batch-conformance.ts` | NDJSON record validation, canonical ID recomputation, sanitization, size limits |
+| Promotion or hold | `promotion-engine.ts` | 10-check evaluation matrix; atomic persist of receipt, records, and decision |
+| Exposure recomputation | `finding-authority.ts` | Server-side finding → package → catalog matching with evidence junctions |
+
+---
+
+### 2. Zero trust by design
+
+<p align="center">
+  <a href="docs/images/allura-bumblebee-zero-trust-by-design-v1.png"><img src="docs/images/allura-bumblebee-zero-trust-by-design-v1.png" alt="Zero trust by design: pinned scanner, least-privilege credentials, source-bound lease, HTTPS-only ingest, schema and scope checks, and fail-closed processing. The scanner reports. The server verifies." width="900" /></a>
+</p>
+
+The scanner reports. The server verifies. A **pinned scanner** (`v0.1.2`, enforced in `upstream-contract.ts`), **least-privilege credentials**, a **source-bound lease**, **HTTPS-only ingest**, and **schema plus scope checks** precede every write — and anything that fails **fails closed**. No self-asserted trust reaches state.
+
+---
+
+### 3. Role-based access and scoped authority
+
+<p align="center">
+  <a href="docs/images/allura-bumblebee-role-based-access-v1.png"><img src="docs/images/allura-bumblebee-role-based-access-v1.png" alt="Role-based access and scoped authority: a principal with role and permission, source binding, and a scan lease with a short-lived ingest token reaches an allowed action inside a tenant and workspace scope, or access is blocked." width="900" /></a>
+</p>
+
+No role. No scope. No execution. The credential split is deliberate: the **runner credential** requests and establishes context, and a separate **ingest credential** performs the scoped action. **Source binding** and a **short-lived ingest token** keep every action inside its tenant and workspace boundary. If any check fails, access is blocked rather than degraded.
+
+---
+
+### 4. A vulnerability has to prove itself
+
+<p align="center">
+  <a href="docs/images/allura-bumblebee-vulnerability-proves-itself-v1.png"><img src="docs/images/allura-bumblebee-vulnerability-proves-itself-v1.png" alt="A vulnerability has to prove itself: a scanner finding becomes a trusted exposure only after the installed package, matching version, and bound advisory catalog are all verified." width="900" /></a>
+</p>
+
+Findings are claims; trusted exposures are verified. A scanner finding becomes a **trusted exposure** only after the **installed package** is confirmed present on the endpoint, the **version matches** the finding, and the advisory is verified against the **bound advisory catalog**. Anything short of that stays **endpoint-asserted only** — recorded, but never presented as proven.
+
+---
+
+### 5. Bad scans never replace good inventory
+
+<p align="center">
+  <a href="docs/images/allura-bumblebee-trusted-inventory-v1.png"><img src="docs/images/allura-bumblebee-trusted-inventory-v1.png" alt="Bad scans never replace good inventory: complete, bound, consistent scans promote into the trusted inventory; partial or conflicting scans are held as evidence only." width="900" /></a>
+</p>
+
+Incomplete evidence does not overwrite trusted state. A scan is **promoted** only when it carries a complete summary, bound scope, and consistent counts. Partial results, timeouts, changed roots, and contradictory counts are **held as evidence only** — the current inventory is preserved untouched. Trust is earned; hold protects it.
+
+---
+
+### 6. Bumblebee runs on the Allura governance layer
+
+<p align="center">
+  <a href="docs/images/allura-bumblebee-governance-layer-v1.png"><img src="docs/images/allura-bumblebee-governance-layer-v1.png" alt="Bumblebee runs on the Allura governance layer: identity, RBAC, and tenant isolation on one side; audit evidence, telemetry, and policy gates on the other." width="900" /></a>
+</p>
+
+Bumblebee scans supply-chain risk; Allura governs the execution. **Identity**, **RBAC**, and **tenant isolation** shape who may act; **audit evidence**, **telemetry**, and **policy gates** shape what that action is allowed to become. Plugin capability, platform controls.
+
+Downstream, exposure alerts flow into simulated proposals, approvals, actions, and immutable receipts, with optional read-only display on the Curator dashboard.
 
 ## Code Location
 
@@ -126,9 +145,9 @@ The pin is enforced in code at `upstream-contract.ts` → `BUMBLEBEE_UPSTREAM_PI
 
 ## Further Reading
 
-- [Framework Mapping](./framework-mapping.md) — how bumblebee maps to Allura's reusable agent framework, harness, memory, and governance primitives
-- [Architecture & Data Flow](./architecture.md) — module structure, data model, promotion matrix
-- [Transport & Auth](./transport.md) — API endpoints, credential split, HTTPS enforcement
-- [Upstream Pin & Schema](./upstream-pin.md) — scanner version, ecosystem allowlists, compatibility restrictions
-- [State & Promotion](./state-model.md) — snapshot truth, staleness, profile separation
-- [Security & Privacy](./security.md) — sanitization, RLS, fail-closed patterns, secret canaries
+- [Framework Mapping](docs/framework-mapping.md) — how bumblebee maps to Allura's reusable agent framework, harness, memory, and governance primitives
+- [Architecture & Data Flow](docs/architecture.md) — module structure, data model, promotion matrix
+- [Transport & Auth](docs/transport.md) — API endpoints, credential split, HTTPS enforcement
+- [Upstream Pin & Schema](docs/upstream-pin.md) — scanner version, ecosystem allowlists, compatibility restrictions
+- [State & Promotion](docs/state-model.md) — snapshot truth, staleness, profile separation
+- [Security & Privacy](docs/security.md) — sanitization, RLS, fail-closed patterns, secret canaries
