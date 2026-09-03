@@ -97,6 +97,8 @@ Downstream, exposure alerts flow into simulated proposals, approvals, actions, a
 
 ## Code Location
 
+This repository is the **public plugin and documentation surface** for bumblebee. The implementation lives in [`Allura_Memory`](https://github.com/Allura-Ecosystem/Allura_Memory); every path below is relative to that repository, not this one.
+
 | Surface | Path |
 |---------|------|
 | Core library | `src/lib/bumblebee/` |
@@ -107,6 +109,8 @@ Downstream, exposure alerts flow into simulated proposals, approvals, actions, a
 | Sprint status | `_bmad/bmm/stories/sprint-status.yaml` (Epic 26 = done) |
 
 ## Source Files at a Glance
+
+Paths below are under `src/lib/bumblebee/` in [`Allura_Memory`](https://github.com/Allura-Ecosystem/Allura_Memory).
 
 | File | Responsibility |
 |------|---------------|
