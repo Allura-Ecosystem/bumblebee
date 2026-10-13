@@ -2,6 +2,14 @@
 
 > **AI-Assisted Documentation** — prepared with AI assistance and grounded in the pinned upstream source, repository authority, and live code review (Epic 26, Story 26.7, all 19 ACs approved 2026-08-29).
 
+## Plugin workflow update — 0.1.1
+
+The shipped `bumblebee-review` skill and command now provide a direct entry point
+for read-only evidence review. They reuse matching, fresh context and inherit the
+user's model choice. Stale evidence and changed scope force a refresh. The plugin
+still supplies no scanner binary or live connector; server governance and the
+upstream scanner pin are unchanged. See [workflow evaluation](docs/workflow-evaluation.md).
+
 ## What It Is
 
 The Bumblebee plugin is a **governed agent-tool integration** built on Allura's framework and harness primitives. It wraps a pinned upstream scanner — [`perplexityai/bumblebee`](https://github.com/perplexityai/bumblebee) — as a deterministic, policy-gated tool within the Allura agent platform, providing read-only supply-chain inventory and vulnerability exposure intelligence for developer endpoints.

@@ -1,6 +1,6 @@
 {
   "name": "bumblebee",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Supply-chain threat intelligence plugin: pinned Bumblebee scanner wrapped as a governed, policy-gated Allura agent tool for read-only package inventory and vulnerability exposure.",
   "author": {
     "name": "Allura-Ecosystem"
@@ -16,7 +16,6 @@
     "governance"
   ],
   "skills": "./skills/",
-  "commands": "./commands/",
   "interface": {
     "displayName": "Bumblebee",
     "shortDescription": "Supply-chain threat intelligence via governed scanner integration.",
